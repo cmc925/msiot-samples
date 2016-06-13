@@ -195,28 +195,14 @@ namespace AdapterLib
         // Run the script to get that property. Script function is "getPROPNAME" where PROPNAME is the name of the property
         // e.g. getBrightness
 
-        AdapterValueVector paramsIn;
-        std::string name("get");
-        name += tempProperty->Name();
         ScriptHost* host = reinterpret_cast<ScriptHost*>((void*)device->HostContext());
 
         auto adapterRequest = std::make_shared<JsAdapterRequest>();
         std::shared_ptr<IAdapterValue> resultValue = ValuePtr;
         RequestPtr = adapterRequest;
-        host->CallScriptFunction(name, paramsIn, false, [=](uint32_t status, AdapterValueVector outParams)
+        host->InvokePropertyGetter(tempProperty->Name(), resultValue, [=](uint32_t status)
         {
-            if (status == ERROR_SUCCESS)
-            {
-                if (outParams.size() > 0)
-                {
-                    *resultValue = *outParams.at(0);
-                }
-                else
-                {
-                    status = ERROR_GEN_FAILURE;
-                }
-            }
-            else
+            if (status != ERROR_SUCCESS)
             {
                 std::cerr << "GetPropertyValue failed on adapter" << std::endl;
             }
@@ -268,15 +254,13 @@ namespace AdapterLib
 
         AdapterValueVector paramsIn;
         AdapterValueVector paramsOut;
-        std::string name("set");
-        name += tempProperty->Name();
         ScriptHost* host = reinterpret_cast<ScriptHost*>((void*)device->HostContext());
         std::shared_ptr<IAdapterValue> sharedVal(dynamic_cast<IAdapterValue*>(tempValue));
         paramsIn.push_back(sharedVal);
 
         auto adapterRequest = std::make_shared<JsAdapterRequest>();
         RequestPtr = adapterRequest;
-        host->CallScriptFunction(name, paramsIn, false, [=](uint32_t status, AdapterValueVector outParams)
+        host->InvokePropertySetter(tempProperty->Name(), Value, [=](uint32_t status)
         {
             if (status != ERROR_SUCCESS)
             {
@@ -302,15 +286,17 @@ namespace AdapterLib
         // Call the script function
         ScriptHost* host = reinterpret_cast<ScriptHost*>((void*)device->HostContext());
 
+        std::shared_ptr<IAdapterValue> resultPtr;
+        if (method->OutputParams().size() == 1)
+        {
+            resultPtr = method->OutputParams()[0];
+        }
+
         auto adapterRequest = std::make_shared<JsAdapterRequest>();
         requestPtr = adapterRequest;
-        host->CallScriptFunction(method->Name(), method->InputParams(), false, [=](uint32_t status, AdapterValueVector outParams)
+        host->InvokeMethod(method->Name(), method->InputParams(), resultPtr, false, [=](uint32_t status)
         {
-            if (status == ERROR_SUCCESS)
-            {
-                method->OutputParams() = outParams;
-            }
-            else
+            if (status != ERROR_SUCCESS)
             {
                 std::cerr << "CallMethod failed on adapter" << std::endl;
             }
