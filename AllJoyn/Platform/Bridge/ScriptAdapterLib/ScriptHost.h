@@ -39,21 +39,34 @@ namespace ScriptHostConstants
     const char ContextName[] = "_adapterDeviceCtx";
 };
 
+// A smart wrapper around the JXValue structure that automatically
+// initializes and frees the structure.
+class jxvalue
+{
+public:
+    jxvalue() { JX_New(&_value); }
+    ~jxvalue() { JX_Free(&_value); }
+    operator JXValue() { return _value; }
+    operator JXValue*() { return &_value; }
+private:
+    JXValue _value;
+};
+
 class ScriptHost
 {
 public:
     ScriptHost()
     {
-        JX_SetNull(&_deviceObject);
+        JX_SetNull(_deviceObject);
     }
 
     ~ScriptHost()
     {
         _dispatcher.DispatchAndWait([&]()
         {
-            if (!JX_IsNullOrUndefined(&_deviceObject))
+            if (!JX_IsNullOrUndefined(_deviceObject))
             {
-                JX_ClearPersistent(&_deviceObject);
+                JX_ClearPersistent(_deviceObject);
             }
             JX_StopEngine();
         });
@@ -82,15 +95,15 @@ public:
             JX_Loop();
 
             // Call script function initDevice
-            JXValue result;
+            jxvalue result;
             std::vector<JXValue> params;
             params.emplace_back(_deviceObject);
 
             uint32_t status = InternalCallScriptFunction(
-                &result, ScriptHostConstants::InitializationFunctionName, params);
+                result, ScriptHostConstants::InitializationFunctionName, params);
             if (status == ERROR_SUCCESS)
             {
-                GetAsyncJxResult(&result,
+                GetAsyncJxResult(result,
                     [=](bool success, JXResult* asyncResult)
                     {
                         callback(success ? ERROR_SUCCESS : ERROR_GEN_FAILURE);
@@ -100,8 +113,6 @@ public:
             {
                 callback(status);
             }
-
-            JX_Free(&result);
         });
     }
 
@@ -115,15 +126,15 @@ public:
     {
         _dispatcher.Dispatch([=]()
         {
-            JXValue exports;
-            GetExportsObject(&exports);
+            jxvalue exports;
+            GetExportsObject(exports);
 
-            JXValue prop;
-            JX_GetNamedProperty(&exports, name.c_str(), &prop);
-            if (!JX_IsUndefined(&prop))
+            jxvalue prop;
+            JX_GetNamedProperty(exports, name.c_str(), prop);
+            if (!JX_IsUndefined(prop))
             {
                 // An actual property was found. Get the value directly.
-                ConvertJxValueToAdapterValue(&prop, outParam);
+                ConvertJxValueToAdapterValue(prop, outParam);
                 callback(ERROR_SUCCESS);
             }
             else
@@ -132,14 +143,14 @@ public:
                 std::locale loc;
                 std::string methodName = std::string("get") + std::toupper(name[0], loc) + name.substr(1);
 
-                JX_GetNamedProperty(&exports, methodName.c_str(), &prop);
-                if (JX_IsFunction(&prop))
+                JX_GetNamedProperty(exports, methodName.c_str(), prop);
+                if (JX_IsFunction(prop))
                 {
-                    JXValue result;
-                    bool completed = JX_CallFunction(&prop, nullptr, 0, &result);
+                    jxvalue result;
+                    bool completed = JX_CallFunction(prop, nullptr, 0, result);
                     if (completed)
                     {
-                        GetAsyncJxResult(&result, [=](bool success, JXResult* asyncResult)
+                        GetAsyncJxResult(result, [=](bool success, JXResult* asyncResult)
                         {
                             if (success)
                             {
@@ -156,17 +167,12 @@ public:
                     {
                         callback(ERROR_GEN_FAILURE);
                     }
-
-                    JX_Free(&result);
                 }
                 else
                 {
                     callback(ERROR_NOT_FOUND);
                 }
             }
-
-            JX_Free(&prop);
-            JX_Free(&exports);
         });
     }
 
@@ -186,15 +192,15 @@ public:
             inParams[0] = inParam;
             ConvertAdapterValuesToJxValues(inParams, jxInputParams);
 
-            JXValue exports;
-            GetExportsObject(&exports);
+            jxvalue exports;
+            GetExportsObject(exports);
 
-            JXValue prop;
-            JX_GetNamedProperty(&exports, name.c_str(), &prop);
-            if (!JX_IsUndefined(&prop))
+            jxvalue prop;
+            JX_GetNamedProperty(exports, name.c_str(), prop);
+            if (!JX_IsUndefined(prop))
             {
                 // An actual property was found. Set the value directly.
-                JX_SetNamedProperty(&exports, name.c_str(), &jxInputParams[0]);
+                JX_SetNamedProperty(exports, name.c_str(), &jxInputParams[0]);
                 callback(ERROR_SUCCESS);
             }
             else
@@ -203,14 +209,14 @@ public:
                 std::locale loc;
                 std::string methodName = std::string("set") + std::toupper(name[0], loc) + name.substr(1);
 
-                JX_GetNamedProperty(&exports, methodName.c_str(), &prop);
-                if (JX_IsFunction(&prop))
+                JX_GetNamedProperty(exports, methodName.c_str(), prop);
+                if (JX_IsFunction(prop))
                 {
-                    JXValue result;
-                    bool completed = JX_CallFunction(&prop, jxInputParams.data(), 1, &result);
+                    jxvalue result;
+                    bool completed = JX_CallFunction(prop, jxInputParams.data(), 1, result);
                     if (completed)
                     {
-                        GetAsyncJxResult(&result, [=](bool success, JXResult* asyncResult)
+                        GetAsyncJxResult(result, [=](bool success, JXResult* asyncResult)
                         {
                             callback(success ? ERROR_SUCCESS : ERROR_GEN_FAILURE);
                         });
@@ -219,17 +225,12 @@ public:
                     {
                         callback(ERROR_GEN_FAILURE);
                     }
-
-                    JX_Free(&result);
                 }
                 else
                 {
                     callback(ERROR_NOT_FOUND);
                 }
             }
-
-            JX_Free(&prop);
-            JX_Free(&exports);
         });
     }
 
@@ -258,11 +259,11 @@ public:
             }
 
             // Call the script function
-            JXValue result;
-            uint32_t status = InternalCallScriptFunction(&result, name, jxInputParams);
+            jxvalue result;
+            uint32_t status = InternalCallScriptFunction(result, name, jxInputParams);
             if (status == ERROR_SUCCESS)
             {
-                GetAsyncJxResult(&result, [=](bool success, JXResult* asyncResult)
+                GetAsyncJxResult(result, [=](bool success, JXResult* asyncResult)
                 {
                     if (success)
                     {
@@ -279,8 +280,6 @@ public:
             {
                 callback(status);
             }
-
-            JX_Free(&result);
         });
     }
 
@@ -329,11 +328,9 @@ private:
             std::vector<int32_t> array = ipv.Get<std::vector<int32_t>>();
             for (unsigned int i = 0; i < array.size(); i++)
             {
-                JXValue elementValue;
-                JX_New(&elementValue);
-                JX_SetInt32(&elementValue, array[i]);
-                JX_SetIndexedProperty(valueOut, i, &elementValue);
-                JX_Free(&elementValue);
+                jxvalue elementValue;
+                JX_SetInt32(elementValue, array[i]);
+                JX_SetIndexedProperty(valueOut, i, elementValue);
             }
             break;
         }
@@ -344,11 +341,9 @@ private:
             std::vector<std::string> array = ipv.Get<std::vector<std::string>>();
             for (unsigned int i = 0; i < array.size(); i++)
             {
-                JXValue elementValue;
-                JX_New(&elementValue);
-                JX_SetString(&elementValue, array[i].c_str(), (const int32_t)array[i].size());
-                JX_SetIndexedProperty(valueOut, i, &elementValue);
-                JX_Free(&elementValue);
+                jxvalue elementValue;
+                JX_SetString(elementValue, array[i].c_str(), (const int32_t)array[i].size());
+                JX_SetIndexedProperty(valueOut, i, elementValue);
             }
             break;
         }
@@ -358,11 +353,9 @@ private:
             auto dict = ipv.Get<std::unordered_map<std::string, std::string>>();
             for (const std::pair<std::string, std::string>& dictElement : dict)
             {
-                JXValue elementValue;
-                JX_New(&elementValue);
-                JX_SetString(&elementValue, dictElement.second.c_str(), (const int32_t)dictElement.second.size());
-                JX_SetNamedProperty(valueOut, dictElement.first.c_str(), &elementValue);
-                JX_Free(&elementValue);
+                jxvalue elementValue;
+                JX_SetString(elementValue, dictElement.second.c_str(), (const int32_t)dictElement.second.size());
+                JX_SetNamedProperty(valueOut, dictElement.first.c_str(), elementValue);
             }
             break;
         }
@@ -434,30 +427,27 @@ private:
         case Bridge::PropertyType::Int32Array:
         {
             std::vector<int> array;
-            JXValue arrayLength;
-            JX_GetNamedProperty(valueIn, ScriptHostConstants::Length, &arrayLength);
-            if (JX_IsInt32(&arrayLength))
+            jxvalue arrayLength;
+            JX_GetNamedProperty(valueIn, ScriptHostConstants::Length, arrayLength);
+            if (JX_IsInt32(arrayLength))
             {
-                int length = (unsigned int)JX_GetInt32(&arrayLength);
+                int length = (unsigned int)JX_GetInt32(arrayLength);
                 for (int i = 0; i < length; i++)
                 {
-                    JXValue elementValue;
-                    JX_GetIndexedProperty(valueIn, i, &elementValue);
-                    if (JX_IsInt32(&elementValue))
+                    jxvalue elementValue;
+                    JX_GetIndexedProperty(valueIn, i, elementValue);
+                    if (JX_IsInt32(elementValue))
                     {
-                        int elementInt = JX_GetInt32(&elementValue);
+                        int elementInt = JX_GetInt32(elementValue);
                         array.push_back(elementInt);
                     }
                     else
                     {
                         array.push_back(0);
                     }
-
-                    JX_Free(&elementValue);
                 }
             }
 
-            JX_Free(&arrayLength);
             value = std::move(array);
             break;
         }
@@ -465,30 +455,27 @@ private:
         case Bridge::PropertyType::StringArray:
         {
             std::vector<std::string> array;
-            JXValue arrayLength;
-            JX_GetNamedProperty(valueIn, ScriptHostConstants::Length, &arrayLength);
-            if (JX_IsInt32(&arrayLength))
+            jxvalue arrayLength;
+            JX_GetNamedProperty(valueIn, ScriptHostConstants::Length, arrayLength);
+            if (JX_IsInt32(arrayLength))
             {
-                int length = (unsigned int)JX_GetInt32(&arrayLength);
+                int length = (unsigned int)JX_GetInt32(arrayLength);
                 for (int i = 0; i < length; i++)
                 {
-                    JXValue elementValue;
-                    JX_GetIndexedProperty(valueIn, i, &elementValue);
-                    if (JX_IsString(&elementValue))
+                    jxvalue elementValue;
+                    JX_GetIndexedProperty(valueIn, i, elementValue);
+                    if (JX_IsString(elementValue))
                     {
-                        char* elementString = JX_GetString(&elementValue);
+                        char* elementString = JX_GetString(elementValue);
                         array.emplace_back(elementString);
                     }
                     else
                     {
                         array.emplace_back("");
                     }
-
-                    JX_Free(&elementValue);
                 }
             }
 
-            JX_Free(&arrayLength);
             value = std::move(array);
             break;
         }
@@ -497,52 +484,43 @@ private:
             std::unordered_map<std::string, std::string> dict;
             if (JX_IsObject(valueIn))
             {
-                JXValue keysFunc;
-                JX_Evaluate("Object.keys", nullptr, &keysFunc);
-                if (JX_IsFunction(&keysFunc))
+                jxvalue keysFunc;
+                JX_Evaluate("Object.keys", nullptr, keysFunc);
+                if (JX_IsFunction(keysFunc))
                 {
-                    JXValue keysArray;
-                    JX_CallFunction(&keysFunc, valueIn, 1, &keysArray);
+                    jxvalue keysArray;
+                    JX_CallFunction(keysFunc, valueIn, 1, keysArray);
 
-                    JXValue arrayLength;
-                    JX_GetNamedProperty(&keysArray, ScriptHostConstants::Length, &arrayLength);
+                    jxvalue arrayLength;
+                    JX_GetNamedProperty(keysArray, ScriptHostConstants::Length, arrayLength);
 
-                    if (JX_IsInt32(&arrayLength))
+                    if (JX_IsInt32(arrayLength))
                     {
-                        int length = (unsigned int)JX_GetInt32(&arrayLength);
+                        int length = (unsigned int)JX_GetInt32(arrayLength);
                         for (int i = 0; i < length; i++)
                         {
-                            JXValue key;
-                            JX_GetIndexedProperty(&keysArray, i, &key);
+                            jxvalue key;
+                            JX_GetIndexedProperty(keysArray, i, key);
 
-                            if (JX_IsString(&key))
+                            if (JX_IsString(key))
                             {
-                                char* keyString = JX_GetString(&key);
+                                char* keyString = JX_GetString(key);
 
-                                JXValue value;
-                                JX_GetNamedProperty(valueIn, keyString, &value);
-                                if (JX_IsString(&value))
+                                jxvalue value;
+                                JX_GetNamedProperty(valueIn, keyString, value);
+                                if (JX_IsString(value))
                                 {
-                                    char* valueString = JX_GetString(&value);
+                                    char* valueString = JX_GetString(value);
                                     dict.emplace(keyString, valueString);
                                 }
                                 else
                                 {
                                     dict.emplace(keyString, "");
                                 }
-
-                                JX_Free(&value);
                             }
-
-                            JX_Free(&key);
                         }
                     }
-
-                    JX_Free(&keysArray);
-                    JX_Free(&arrayLength);
                 }
-
-                JX_Free(&keysFunc);
             }
 
             value = std::move(dict);
@@ -584,10 +562,9 @@ private:
     {
         if (JX_IsObject(result))
         {
-            JXValue resultThen;
-            JX_GetNamedProperty(result, ScriptHostConstants::Then, &resultThen);
-            bool resultIsAPromise = JX_IsFunction(&resultThen);
-            JX_Free(&resultThen);
+            jxvalue resultThen;
+            JX_GetNamedProperty(result, ScriptHostConstants::Then, resultThen);
+            bool resultIsAPromise = JX_IsFunction(resultThen);
 
             if (resultIsAPromise)
             {
@@ -613,24 +590,18 @@ private:
                     ScriptHostConstants::DeviceObjectName, ScriptHostConstants::ReportResultName, callId,
                     ScriptHostConstants::DeviceObjectName, ScriptHostConstants::ReportResultName, callId);
 
-                JXValue callbackFunction;
-                JX_Evaluate(callbackScript.c_str(), nullptr, &callbackFunction);
+                jxvalue callbackFunction;
+                JX_Evaluate(callbackScript.c_str(), nullptr, callbackFunction);
 
-                JXValue unusedResult;
-                if (!JX_CallFunction(&callbackFunction, result, 1, &unusedResult))
+                jxvalue unusedResult;
+                if (!JX_CallFunction(callbackFunction, result, 1, unusedResult))
                 {
-                    JXValue callbackError;
-                    JX_New(&callbackError);
+                    jxvalue callbackError;
                     const char message[] = "Error setting up promise callbacks.";
-                    JX_SetError(&callbackError, message, _countof(message));
+                    JX_SetError(callbackError, message, _countof(message));
 
-                    resultCallback(false, &callbackError);
-
-                    JX_Free(&callbackError);
+                    resultCallback(false, callbackError);
                 }
-
-                JX_Free(&unusedResult);
-                JX_Free(&callbackFunction);
 
                 JX_Loop();
                 return;
@@ -643,91 +614,76 @@ private:
 
     uint32_t InternalCallScriptFunction(JXValue* result, const std::string& name, std::vector<JXValue>& params)
     {
-        JXValue exports;
-        GetExportsObject(&exports);
+        jxvalue exports;
+        GetExportsObject(exports);
 
-        JXValue func;
-        JX_GetNamedProperty(&exports, name.c_str(), &func);
-        if (JX_IsFunction(&func))
+        jxvalue func;
+        JX_GetNamedProperty(exports, name.c_str(), func);
+        if (JX_IsFunction(func))
         {
-            bool completed = JX_CallFunction(&func, params.data(), (const int)params.size(), result);
+            bool completed = JX_CallFunction(func, params.data(), (const int)params.size(), result);
             JX_Loop();
-            JX_Free(&func);
             return completed ? ERROR_SUCCESS : ERROR_GEN_FAILURE;
         }
         else
         {
-            JX_Free(&func);
             return ERROR_NOT_FOUND;
         }
     }
 
     void SetStringProperty(JXValue* obj, const std::string& name, const std::string& value)
     {
-        JXValue val;
-        JX_New(&val);
-        JX_SetString(&val, value.c_str(), (const int32_t) value.length());
-        JX_SetNamedProperty(obj, name.c_str(), &val);
-        //JX_Free(&val);
+        jxvalue val;
+        JX_SetString(val, value.c_str(), (const int32_t) value.length());
+        JX_SetNamedProperty(obj, name.c_str(), val);
     }
 
     void RegisterDeviceObject(Bridge::IAdapterDevice* pDevice)
     {
         // Set native methods
-        JXValue global;
-        JX_CreateEmptyObject(&_deviceObject);
+        jxvalue global;
+        JX_CreateEmptyObject(_deviceObject);
 
-        JX_GetGlobalObject(&global);
-        JX_SetNamedProperty(&global, ScriptHostConstants::DeviceObjectName, &_deviceObject);
+        JX_GetGlobalObject(global);
+        JX_SetNamedProperty(global, ScriptHostConstants::DeviceObjectName, _deviceObject);
         // Register the native methods
-        JX_SetNativeMethod(&_deviceObject, ScriptHostConstants::RaiseSignalName, &RaiseSignalCallback);
-        JX_SetNativeMethod(&_deviceObject, ScriptHostConstants::ReportResultName, &ReportResultCallback);
+        JX_SetNativeMethod(_deviceObject, ScriptHostConstants::RaiseSignalName, &RaiseSignalCallback);
+        JX_SetNativeMethod(_deviceObject, ScriptHostConstants::ReportResultName, &ReportResultCallback);
         // Set the initial standard properties
-        SetStringProperty(&_deviceObject, ScriptHostConstants::Name, pDevice->Name());
-        SetStringProperty(&_deviceObject, ScriptHostConstants::Props, pDevice->Props());
-        SetStringProperty(&_deviceObject, ScriptHostConstants::Vendor, pDevice->Vendor());
-        SetStringProperty(&_deviceObject, ScriptHostConstants::Model, pDevice->Model());
-        SetStringProperty(&_deviceObject, ScriptHostConstants::Version, pDevice->Version());
-        SetStringProperty(&_deviceObject, ScriptHostConstants::FirmwareVersion, pDevice->FirmwareVersion());
-        SetStringProperty(&_deviceObject, ScriptHostConstants::SerialNumber, pDevice->SerialNumber());
-        SetStringProperty(&_deviceObject, ScriptHostConstants::Description, pDevice->Description());
-        JXValue testVal;
-        JX_New(&testVal);
-        JX_SetInt32(&testVal, 42);
-        JX_SetNamedProperty(&_deviceObject, "testVal", &testVal);
-
-        // Register generic get/set for properties
-        //JX_SetNativeMethod(&_deviceObject, "getProp", getProp);
-        //JX_SetNativeMethod(&_deviceObject, "setProp", setProp);
+        SetStringProperty(_deviceObject, ScriptHostConstants::Name, pDevice->Name());
+        SetStringProperty(_deviceObject, ScriptHostConstants::Props, pDevice->Props());
+        SetStringProperty(_deviceObject, ScriptHostConstants::Vendor, pDevice->Vendor());
+        SetStringProperty(_deviceObject, ScriptHostConstants::Model, pDevice->Model());
+        SetStringProperty(_deviceObject, ScriptHostConstants::Version, pDevice->Version());
+        SetStringProperty(_deviceObject, ScriptHostConstants::FirmwareVersion, pDevice->FirmwareVersion());
+        SetStringProperty(_deviceObject, ScriptHostConstants::SerialNumber, pDevice->SerialNumber());
+        SetStringProperty(_deviceObject, ScriptHostConstants::Description, pDevice->Description());
 
         // As a workaround for legacy scripts, inject "this" as a global object.
-        JX_SetNamedProperty(&global, ScriptHostConstants::This, &_deviceObject);
+        JX_SetNamedProperty(global, ScriptHostConstants::This, _deviceObject);
 
         // Make this persistent so we can always use it
-        JX_MakePersistent(&_deviceObject);
+        JX_MakePersistent(_deviceObject);
         // Set the context for the device object to be the IAdapterDevice
-        JX_WrapObject(&_deviceObject, pDevice);
+        JX_WrapObject(_deviceObject, pDevice);
         // Workaround: WrapObject doesn't persist accross calls into the JS, so we'll store
         // the context in a named property instead.
-        JXValue ctx;
-        JX_New(&ctx);
+        jxvalue ctx;
         std::string ctxString = std::to_string(reinterpret_cast<uintptr_t>(pDevice));
-        JX_SetString(&ctx, ctxString.c_str(), (const uint32_t)ctxString.length());
-        JX_SetNamedProperty(&_deviceObject, ScriptHostConstants::ContextName, &ctx);
+        JX_SetString(ctx, ctxString.c_str(), (const uint32_t)ctxString.length());
+        JX_SetNamedProperty(_deviceObject, ScriptHostConstants::ContextName, ctx);
     }
 
     // Get the object that contains the script's exported properties and methods.
     static void GetExportsObject(JXValue* exports)
     {
-        JXValue process;
-        JX_GetProcessObject(&process);
+        jxvalue process;
+        JX_GetProcessObject(process);
 
-        JXValue module;
-        JX_GetNamedProperty(&process, ScriptHostConstants::MainModule, &module);
-        JX_Free(&process);
+        jxvalue module;
+        JX_GetNamedProperty(process, ScriptHostConstants::MainModule, module);
 
-        JX_GetNamedProperty(&module, ScriptHostConstants::Exports, exports);
-        JX_Free(&module);
+        JX_GetNamedProperty(module, ScriptHostConstants::Exports, exports);
 
         if (!JX_IsObject(exports))
         {
@@ -791,18 +747,19 @@ private:
     static Bridge::IAdapterDevice* GetDeviceContext()
     {
         // Get get the global object and find our context object
-        JXValue obj;
-        JXValue global;
-        JX_GetGlobalObject(&global);
-        JX_GetNamedProperty(&global, ScriptHostConstants::DeviceObjectName, &obj);
+        jxvalue global;
+        JX_GetGlobalObject(global);
 
-        if (obj.type_ == RT_Object)
+        jxvalue obj;
+        JX_GetNamedProperty(global, ScriptHostConstants::DeviceObjectName, obj);
+
+        if (JX_IsObject(obj))
         {
             // Workaround: JX_WrapObject doesn't persist accross calls into the JS, so we'll retrieve
             // the context from a named property instead of using JX_UnwrapObject.
-            JXValue ctx;
-            JX_GetNamedProperty(&obj, ScriptHostConstants::ContextName, &ctx);
-            std::istringstream convert(JX_GetString(&ctx));
+            jxvalue ctx;
+            JX_GetNamedProperty(obj, ScriptHostConstants::ContextName, ctx);
+            std::istringstream convert(JX_GetString(ctx));
             uintptr_t pCtx;
             if (convert >> pCtx)
             {
@@ -814,7 +771,7 @@ private:
         return nullptr;
     }
 
-    JXValue _deviceObject;
+    jxvalue _deviceObject;
     std::unordered_map<int32_t, std::function<void(bool,JXValue*)>> _callbackMap;
     int32_t _nextCallId;
     WorkItemDispatcher _dispatcher;
